@@ -29,6 +29,7 @@ import {
 } from './dom.js';
 import applyStyles, {type Styles} from './styles.js';
 import {type OutputTransformer} from './render-node-to-output.js';
+import {invalidateSquashedTextNodes} from './squash-text-nodes.js';
 
 let connectToDevToolsIfLoaded: (() => () => void) | undefined;
 
@@ -269,7 +270,10 @@ const hostConfig: HostConfig = {
 	getRootHostContext: () => ({
 		isInsideText: false,
 	}),
-	prepareForCommit: () => null,
+	prepareForCommit() {
+		invalidateSquashedTextNodes();
+		return null;
+	},
 	preparePortalMount: () => null,
 	clearContainer: () => false,
 	resetAfterCommit(rootNode) {

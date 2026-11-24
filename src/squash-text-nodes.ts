@@ -5,6 +5,17 @@ import sanitizeAnsi, {
 	normalizeC1Controls,
 } from './sanitize-ansi.js';
 
+// Layout measures each text node and rendering then squashes it again, and Yoga can measure a node more than once, so the same text was built, styled and sanitized several times per frame. The tree only changes while React commits, so a result stays valid until the next commit starts.
+let commitGeneration = 0;
+const squashedTexts = new WeakMap<
+	DOMElement,
+	{readonly generation: number; readonly text: string}
+>();
+
+export const invalidateSquashedTextNodes = (): void => {
+	commitGeneration++;
+};
+
 // Squashing text nodes allows to combine multiple text nodes into one and write
 // to `Output` instance only once. For example, <Text>hello{' '}world</Text>
 // is actually 3 text nodes, which would result 3 writes to `Output`.
@@ -12,6 +23,11 @@ import sanitizeAnsi, {
 // Also, this is necessary for libraries like ink-link (https://github.com/sindresorhus/ink-link),
 // which need to wrap all children at once, instead of wrapping 3 text nodes separately.
 const squashTextNodes = (node: DOMElement): string => {
+	const cached = squashedTexts.get(node);
+	if (cached?.generation === commitGeneration) {
+		return cached.text;
+	}
+
 	let text = '';
 
 	for (const childNode of node.childNodes) {
@@ -59,6 +75,8 @@ const squashTextNodes = (node: DOMElement): string => {
 	if (node.nodeName === 'ink-text' && text.includes('\t')) {
 		text = wrapAnsi(text, Infinity, {trim: false});
 	}
+
+	squashedTexts.set(node, {generation: commitGeneration, text});
 
 	return text;
 };
