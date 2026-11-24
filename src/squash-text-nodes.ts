@@ -1,6 +1,9 @@
 import wrapAnsi from 'wrap-ansi';
 import {type DOMElement} from './dom.js';
-import sanitizeAnsi, {normalizeC1Controls} from './sanitize-ansi.js';
+import sanitizeAnsi, {
+	isSanitized,
+	normalizeC1Controls,
+} from './sanitize-ansi.js';
 
 // Squashing text nodes allows to combine multiple text nodes into one and write
 // to `Output` instance only once. For example, <Text>hello{' '}world</Text>
@@ -45,9 +48,12 @@ const squashTextNodes = (node: DOMElement): string => {
 		text += nodeText;
 	}
 
-	text = sanitizeAnsi(text.replaceAll('\r\n', '\n'));
+	text = text.replaceAll('\r\n', '\n');
 
-	text = normalizeC1Controls(text);
+	// Text styled by `<Text>` is already sanitized, so skip tokenizing it again.
+	if (!isSanitized(text)) {
+		text = normalizeC1Controls(sanitizeAnsi(text));
+	}
 
 	// Expand tabs after combining nested text so measurement and rendering use the same columns.
 	if (node.nodeName === 'ink-text' && text.includes('\t')) {

@@ -101,6 +101,54 @@ const sanitizeAnsi = (text: string): string => {
 	return output + pendingStyles;
 };
 
+const escapeCode = 0x1b;
+const leftBracketCode = 0x5b;
+const semicolonCode = 0x3b;
+const mCode = 0x6d;
+const markRegex = /^\p{Mark}/u;
+
+const isSgrParameterCode = (code: number): boolean =>
+	(code >= 0x30 && code <= 0x39) || code === semicolonCode;
+
+// C0 controls other than tab and line feed, DEL and C1 controls, the same set as `controlCharactersRegex`.
+const isControlCode = (code: number): boolean =>
+	code < 0x20 ? code !== 0x09 && code !== 0x0a : code >= 0x7f && code <= 0x9f;
+
+/**
+Whether `sanitizeAnsi` would return the text unchanged, checked without tokenizing it.
+
+That is text with no control characters other than tabs and line feeds, and no escape sequences other than SGR sequences in their ESC form with only digits and semicolons in their parameters, none of them followed by a combining mark. This is what `<Text>` styles produce, so most text passes and the tokenizer only runs on text that came from elsewhere. Anything else returns `false`, even if it would come out unchanged.
+*/
+export const isSanitized = (text: string): boolean => {
+	for (let index = 0; index < text.length; index++) {
+		const code = text.codePointAt(index)!;
+
+		if (code === escapeCode) {
+			if (text.codePointAt(index + 1) !== leftBracketCode) {
+				return false;
+			}
+
+			index += 2;
+			while (isSgrParameterCode(text.codePointAt(index) ?? 0)) {
+				index++;
+			}
+
+			// `sanitizeAnsi` moves styles after the combining marks that follow them.
+			if (
+				text.codePointAt(index) !== mCode ||
+				((text.codePointAt(index + 1) ?? 0) >= 0x3_00 &&
+					markRegex.test(text.slice(index + 1, index + 3)))
+			) {
+				return false;
+			}
+		} else if (isControlCode(code)) {
+			return false;
+		}
+	}
+
+	return true;
+};
+
 // Measurement and styling dependencies understand the ESC forms of these C1 controls.
 export const normalizeC1Controls = (text: string): string =>
 	text

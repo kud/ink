@@ -1,6 +1,7 @@
 import test, {type TestContext} from 'node:test';
 import stripAnsi from 'strip-ansi';
-import sanitizeAnsi from '../src/sanitize-ansi.js';
+import {Chalk} from 'chalk';
+import sanitizeAnsi, {isSanitized} from '../src/sanitize-ansi.js';
 
 test('preserve plain text', (t: TestContext) => {
 	t.assert.strictEqual(sanitizeAnsi('hello'), 'hello');
@@ -409,4 +410,94 @@ test('strip standalone C1 control characters', (t: TestContext) => {
 	t.assert.strictEqual(output.includes('\u{85}'), false);
 	t.assert.strictEqual(output.includes('\u{8E}'), false);
 	t.assert.strictEqual(stripAnsi(output), 'ABC');
+});
+
+test('`isSanitized` accepts what `<Text>` styles produce at every color level', (t: TestContext) => {
+	for (const level of [0, 1, 2, 3] as const) {
+		const styled = new Chalk({level});
+		const text = styled.bold.italic.underline.strikethrough.inverse.dim(
+			styled.hex('#ff8800').bgAnsi256(21)(
+				`plain ${styled.rgb(1, 2, 3)('rgb')} 漢字 👍\tcafe\u{301}\nnext line`,
+			),
+		);
+
+		t.assert.ok(isSanitized(text), `level ${level}`);
+		t.assert.strictEqual(sanitizeAnsi(text), text, `level ${level}`);
+	}
+});
+
+for (const text of [
+	'A\u{1B}[31m\u{301}B',
+	'A\u{1B}[31m\u{1D167}B',
+	'A\u{1B}[38:5:196mB',
+	'A\u{9B}31mB',
+	'A\u{1B}[2JB',
+	'A\u{1B}]8;;https://example.com\u{7}B\u{1B}]8;;\u{7}',
+	'A\u{1B}[31',
+	'A\u{1B}',
+	'A\rB',
+	'A\u{7F}B',
+	'A\u{85}B',
+]) {
+	test(`\`isSanitized\` leaves ${JSON.stringify(text)} to the tokenizer`, (t: TestContext) => {
+		t.assert.strictEqual(isSanitized(text), false);
+	});
+}
+
+test('`sanitizeAnsi` returns every text accepted by `isSanitized` unchanged', (t: TestContext) => {
+	const pieces = [
+		'a',
+		' ',
+		'é',
+		'\u{301}',
+		'\u{1D167}',
+		'漢',
+		'👍',
+		'\u{D800}',
+		'\t',
+		'\n',
+		'\r',
+		'\u{7}',
+		'\u{7F}',
+		'\u{85}',
+		'\u{9B}',
+		'\u{9C}',
+		'\u{1B}',
+		'\u{1B}[',
+		'\u{1B}[m',
+		'\u{1B}[0m',
+		'\u{1B}[31m',
+		'\u{1B}[1;4m',
+		'\u{1B}[38;2;255;0;0m',
+		'\u{1B}[38:5:196m',
+		'\u{1B}[?25l',
+		'\u{1B}[2J',
+		'\u{1B}]8;;https://example.com\u{7}',
+		'\u{1B}]8;;\u{1B}\\',
+	];
+	// A fixed seed keeps failures reproducible.
+	let seed = 42;
+	const random = (limit: number) => {
+		seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31;
+		return seed % limit;
+	};
+
+	let accepted = 0;
+	for (let sample = 0; sample < 20_000; sample++) {
+		let text = '';
+		const length = random(12);
+		for (let index = 0; index < length; index++) {
+			text += pieces[random(pieces.length)];
+		}
+
+		if (!isSanitized(text)) {
+			continue;
+		}
+
+		accepted++;
+		t.assert.strictEqual(sanitizeAnsi(text), text, JSON.stringify(text));
+	}
+
+	// Make sure the check above ran on a meaningful number of texts.
+	t.assert.ok(accepted > 1000, `only ${accepted} texts were accepted`);
 });
