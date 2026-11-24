@@ -22,12 +22,7 @@ export const invalidateSquashedTextNodes = (): void => {
 //
 // Also, this is necessary for libraries like ink-link (https://github.com/sindresorhus/ink-link),
 // which need to wrap all children at once, instead of wrapping 3 text nodes separately.
-const squashTextNodes = (node: DOMElement): string => {
-	const cached = squashedTexts.get(node);
-	if (cached?.generation === commitGeneration) {
-		return cached.text;
-	}
-
+const squash = (node: DOMElement): string => {
 	let text = '';
 
 	for (const childNode of node.childNodes) {
@@ -44,7 +39,7 @@ const squashTextNodes = (node: DOMElement): string => {
 				childNode.nodeName === 'ink-text' ||
 				childNode.nodeName === 'ink-virtual-text'
 			) {
-				nodeText = squashTextNodes(childNode);
+				nodeText = squash(childNode);
 			}
 
 			// Since these text nodes are being concatenated, `Output` instance won't be able to
@@ -54,10 +49,12 @@ const squashTextNodes = (node: DOMElement): string => {
 				typeof childNode.internal_transform === 'function'
 			) {
 				const transform = childNode.internal_transform;
-				nodeText = nodeText
-					.split('\n')
-					.map((line, lineIndex) => transform(line, lineIndex))
-					.join('\n');
+				nodeText = nodeText.includes('\n')
+					? nodeText
+							.split('\n')
+							.map((line, lineIndex) => transform(line, lineIndex))
+							.join('\n')
+					: transform(nodeText, 0);
 			}
 		}
 
@@ -76,6 +73,21 @@ const squashTextNodes = (node: DOMElement): string => {
 		text = wrapAnsi(text, Infinity, {trim: false});
 	}
 
+	return text;
+};
+
+const squashTextNodes = (node: DOMElement): string => {
+	// Nested text is only squashed as part of the text node that holds it, so only that one is cached.
+	if (node.nodeName !== 'ink-text') {
+		return squash(node);
+	}
+
+	const cached = squashedTexts.get(node);
+	if (cached?.generation === commitGeneration) {
+		return cached.text;
+	}
+
+	const text = squash(node);
 	squashedTexts.set(node, {generation: commitGeneration, text});
 
 	return text;
